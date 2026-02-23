@@ -5,7 +5,6 @@ import json
 import datetime
 import os
 
-# Get token from Railway environment variable
 TOKEN = os.getenv("TOKEN")
 
 if TOKEN is None:
@@ -87,12 +86,20 @@ async def birthday_check():
     today = datetime.datetime.now().strftime("%d-%m")
 
     for guild in bot.guilds:
+        birthday_channel = discord.utils.get(
+            guild.text_channels,
+            name="ᯓ✦∘˙🎂┃ʙɪʀᴛʜᴅᴀʏ"
+        )
+
+        if birthday_channel is None:
+            continue
+
         for user_id, date in birthdays.items():
             if date == today:
                 member = guild.get_member(int(user_id))
-                if member and guild.system_channel:
-                    await guild.system_channel.send(
-                        f"🎉 Happy Birthday {member.mention}! 🎂"
+                if member:
+                    await birthday_channel.send(
+                        f"🎉🎂 Happy Birthday {member.mention}! 🎂🎉"
                     )
 
 # ---------------- BOT READY ---------------- #
