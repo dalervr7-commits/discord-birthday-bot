@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 
-TOKEN = MTQ3NTIxMjI1Njg2NTQyMzYwMQ.GcKAwB.hXCbyQm_syWdWPCzzBgcufF0QkU_HODkiPp1WI
+TOKEN = "MTQ3NTIxMjI1Njg2NTQyMzYwMQ.GcKAwB.hXCbyQm_syWdWPCzzBgcufF0QkU_HODkiPp1WI"
 BIRTHDAY_CHANNEL_ID = 1475414781853700157
 
 intents = discord.Intents.default()
@@ -156,3 +156,4 @@ async def check_birthdays():
                 await channel.send(f"🎉🎂 Happy Birthday {user.mention}!")
 
 bot.run(TOKEN)
+
