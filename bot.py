@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands
 import json
 import datetime
 import os
@@ -43,19 +42,31 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# ---------------- SET BIRTHDAY ---------------- #
+# ---------------- SET BIRTHDAY (PRIVATE EMBED STYLE) ---------------- #
 
 @bot.tree.command(name="setbirthday", description="Set your birthday (DD-MM)")
 async def setbirthday(interaction: discord.Interaction, date: str):
     try:
-        datetime.datetime.strptime(date, "%d-%m")
+        parsed_date = datetime.datetime.strptime(date, "%d-%m")
     except ValueError:
-        await interaction.response.send_message("❌ Use format DD-MM (Example: 21-02)")
+        await interaction.response.send_message(
+            "❌ Use format DD-MM (Example: 21-02)",
+            ephemeral=True
+        )
         return
 
     birthdays[str(interaction.user.id)] = date
     save_json("birthdays.json", birthdays)
-    await interaction.response.send_message(f"🎂 Birthday saved as {date}")
+
+    formatted_date = parsed_date.strftime("%B %d")
+
+    embed = discord.Embed(
+        title="🎂 Birthday Saved!",
+        description=f"I've set your birthday to **{formatted_date}**.",
+        color=0xF1C40F
+    )
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ---------------- LEADERBOARD ---------------- #
 
@@ -98,11 +109,14 @@ async def birthday_check():
             if date == today:
                 member = guild.get_member(int(user_id))
                 if member:
-                    await birthday_channel.send(
-                        f"🎉🎂 Happy Birthday {member.mention}! 🎂🎉"
+                    embed = discord.Embed(
+                        title="🎉 HAPPY BIRTHDAY 🎉",
+                        description=f"🎂 Let's wish {member.mention} an amazing year ahead!",
+                        color=0xFF69B4
                     )
+                    await birthday_channel.send(embed=embed)
 
-# ---------------- BOT READY ---------------- #
+# ---------------- READY EVENT ---------------- #
 
 @bot.event
 async def on_ready():
