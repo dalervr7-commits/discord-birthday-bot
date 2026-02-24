@@ -2,9 +2,14 @@ import discord
 from discord.ext import commands, tasks
 import json
 import os
+import random
 from datetime import datetime
 
-TOKEN = "MTQ3NTIxMjI1Njg2NTQyMzYwMQ.GcKAwB.hXCbyQm_syWdWPCzzBgcufF0QkU_HODkiPp1WI"
+# ==============================
+# CONFIG
+# ==============================
+
+TOKEN = os.getenv("TOKEN")
 BIRTHDAY_CHANNEL_ID = 1475414781853700157
 
 intents = discord.Intents.default()
@@ -13,147 +18,117 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ==========================
+# ==============================
 # FILE SETUP
-# ==========================
+# ==============================
 
-LEVELS_FILE = "levels.json"
-BIRTHDAY_FILE = "birthdays.json"
-
-def load_file(file):
-    if not os.path.exists(file):
-        with open(file, "w") as f:
+def load_data(filename):
+    if not os.path.exists(filename):
+        with open(filename, "w") as f:
             json.dump({}, f)
-    with open(file, "r") as f:
+    with open(filename, "r") as f:
         return json.load(f)
 
-def save_file(file, data):
-    with open(file, "w") as f:
+def save_data(filename, data):
+    with open(filename, "w") as f:
         json.dump(data, f, indent=4)
 
-# ==========================
-# READY EVENT
-# ==========================
-
-@bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    check_birthdays.start()
-
-# ==========================
-# LEVEL SYSTEM
-# ==========================
+# ==============================
+# XP SYSTEM
+# ==============================
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    data = load_file(LEVELS_FILE)
+    levels = load_data("levels.json")
     user_id = str(message.author.id)
 
-    if user_id not in data:
-        data[user_id] = {"xp": 0, "level": 1}
+    if user_id not in levels:
+        levels[user_id] = {"xp": 0, "level": 1}
 
-    data[user_id]["xp"] += 10
+    xp_gain = random.randint(5, 15)
+    levels[user_id]["xp"] += xp_gain
 
-    xp = data[user_id]["xp"]
-    level = data[user_id]["level"]
-    required_xp = 100 * level
+    xp_needed = levels[user_id]["level"] * 100
 
-    if xp >= required_xp:
-        data[user_id]["level"] += 1
-        data[user_id]["xp"] = 0
+    if levels[user_id]["xp"] >= xp_needed:
+        levels[user_id]["xp"] = 0
+        levels[user_id]["level"] += 1
         await message.channel.send(
-            f"🎉 {message.author.mention} leveled up to Level {level + 1}!"
+            f"🎉 {message.author.mention} leveled up to Level {levels[user_id]['level']}!"
         )
 
-    save_file(LEVELS_FILE, data)
-
+    save_data("levels.json", levels)
     await bot.process_commands(message)
 
-@bot.command(name="r")
-async def rank(ctx, member: discord.Member = None):
-    member = member or ctx.author
-    data = load_file(LEVELS_FILE)
-    user_id = str(member.id)
+# Rank Command
+@bot.command()
+async def r(ctx):
+    levels = load_data("levels.json")
+    user_id = str(ctx.author.id)
 
-    if user_id not in data:
-        await ctx.send("No XP yet.")
+    if user_id not in levels:
+        await ctx.send("You have no XP yet!")
         return
 
-    xp = data[user_id]["xp"]
-    level = data[user_id]["level"]
-    required_xp = 100 * level
+    xp = levels[user_id]["xp"]
+    level = levels[user_id]["level"]
+    await ctx.send(f"📊 {ctx.author.mention} | Level: {level} | XP: {xp}")
 
-    embed = discord.Embed(
-        title=f"{member.name}'s Rank",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name="Level", value=level)
-    embed.add_field(name="XP", value=f"{xp}/{required_xp}")
-    embed.set_thumbnail(url=member.display_avatar.url)
-
-    await ctx.send(embed=embed)
-
-@bot.command(name="lb")
-async def leaderboard(ctx):
-    data = load_file(LEVELS_FILE)
+# Leaderboard Command
+@bot.command()
+async def lb(ctx):
+    levels = load_data("levels.json")
 
     sorted_users = sorted(
-        data.items(),
+        levels.items(),
         key=lambda x: (x[1]["level"], x[1]["xp"]),
         reverse=True
     )
 
-    embed = discord.Embed(
-        title="🏆 Server Leaderboard",
-        color=discord.Color.green()
-    )
+    leaderboard = "🏆 **Top 10 Leaderboard**\n\n"
 
-    for i, (user_id, info) in enumerate(sorted_users[:10], start=1):
+    for i, (user_id, data) in enumerate(sorted_users[:10], start=1):
         user = await bot.fetch_user(int(user_id))
-        embed.add_field(
-            name=f"{i}. {user.name}",
-            value=f"Level {info['level']} | XP {info['xp']}",
-            inline=False
-        )
+        leaderboard += f"{i}. {user.name} | Level {data['level']} ({data['xp']} XP)\n"
 
-    await ctx.send(embed=embed)
+    await ctx.send(leaderboard)
 
-# ==========================
+# ==============================
 # BIRTHDAY SYSTEM
-# ==========================
+# ==============================
 
-@bot.command(name="setbirthday")
-async def set_birthday(ctx, date: str):
-    """
-    Format: !setbirthday DD-MM
-    Example: !setbirthday 25-12
-    """
-    try:
-        datetime.strptime(date, "%d-%m")
-    except ValueError:
-        await ctx.send("❌ Use format: DD-MM (Example: 25-12)")
-        return
+@bot.command()
+async def setbirthday(ctx, day: int, month: int):
+    birthdays = load_data("birthdays.json")
+    user_id = str(ctx.author.id)
 
-    data = load_file(BIRTHDAY_FILE)
-    data[str(ctx.author.id)] = date
-    save_file(BIRTHDAY_FILE, data)
+    birthdays[user_id] = {"day": day, "month": month}
+    save_data("birthdays.json", birthdays)
 
-    await ctx.send("🎂 Birthday saved successfully!")
+    await ctx.send("🎂 Your birthday has been saved!")
 
 @tasks.loop(hours=24)
-async def check_birthdays():
-    today = datetime.now().strftime("%d-%m")
-    data = load_file(BIRTHDAY_FILE)
+async def birthday_check():
+    today = datetime.now()
+    birthdays = load_data("birthdays.json")
 
-    for user_id, date in data.items():
-        if date == today:
-            channel = bot.get_channel(BIRTHDAY_CHANNEL_ID)
-            if channel:
-                user = await bot.fetch_user(int(user_id))
-                await channel.send(f"🎉🎂 Happy Birthday {user.mention}!")
+    channel = bot.get_channel(BIRTHDAY_CHANNEL_ID)
+    if channel is None:
+        return
+
+    for user_id, data in birthdays.items():
+        if data["day"] == today.day and data["month"] == today.month:
+            user = await bot.fetch_user(int(user_id))
+            await channel.send(f"🎉🎂 Happy Birthday {user.mention}! 🎂🎉")
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+    birthday_check.start()
+
+# ==============================
 
 bot.run(TOKEN)
-
