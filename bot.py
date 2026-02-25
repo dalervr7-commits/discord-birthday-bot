@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 import json
 import os
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # ==============================
 # CONFIG
@@ -19,22 +19,51 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ==============================
-# FILE SETUP
+# FILE FUNCTIONS
 # ==============================
 
 def load_data(filename):
     if not os.path.exists(filename):
         with open(filename, "w") as f:
             json.dump({}, f)
-    with open(filename, "r") as f:
-        return json.load(f)
+
+    try:
+        with open(filename, "r") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {}
 
 def save_data(filename, data):
     with open(filename, "w") as f:
         json.dump(data, f, indent=4)
 
 # ==============================
-# XP SYSTEM
+# WARNING SYSTEM
+# ==============================
+
+def add_warning(user_id):
+    warnings = load_data("warnings.json")
+    user_id = str(user_id)
+
+    if user_id not in warnings:
+        warnings[user_id] = 0
+
+    warnings[user_id] += 1
+    save_data("warnings.json", warnings)
+    return warnings[user_id]
+
+# ==============================
+# ANTI SPAM SETUP
+# ==============================
+
+user_message_times = {}
+SPAM_LIMIT = 5
+SPAM_SECONDS = 5
+
+BAD_WORDS = ["badword1", "badword2"]  # Customize
+
+# ==============================
+# XP SYSTEM + AUTOMOD
 # ==============================
 
 @bot.event
@@ -42,6 +71,61 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    now = datetime.now()
+
+    # ==================
+    # ANTI SPAM
+    # ==================
+    if message.author.id not in user_message_times:
+        user_message_times[message.author.id] = []
+
+    user_message_times[message.author.id].append(now)
+
+    user_message_times[message.author.id] = [
+        t for t in user_message_times[message.author.id]
+        if (now - t).seconds < SPAM_SECONDS
+    ]
+
+    if len(user_message_times[message.author.id]) >= SPAM_LIMIT:
+        await message.delete()
+        warn_count = add_warning(message.author.id)
+        await message.channel.send(
+            f"⚠️ {message.author.mention} Stop spamming! Warning {warn_count}/3"
+        )
+
+        if warn_count >= 3:
+            try:
+                await message.author.timeout(timedelta(minutes=10), reason="Spam")
+                await message.channel.send(
+                    f"🔇 {message.author.mention} timed out for 10 minutes."
+                )
+            except:
+                pass
+        return
+
+    # ==================
+    # BAD WORD FILTER
+    # ==================
+    if any(word in message.content.lower() for word in BAD_WORDS):
+        await message.delete()
+        warn_count = add_warning(message.author.id)
+        await message.channel.send(
+            f"🚫 {message.author.mention} Watch your language! Warning {warn_count}/3"
+        )
+
+        if warn_count >= 3:
+            try:
+                await message.author.timeout(timedelta(minutes=10), reason="Bad language")
+                await message.channel.send(
+                    f"🔇 {message.author.mention} timed out for 10 minutes."
+                )
+            except:
+                pass
+        return
+
+    # ==================
+    # XP SYSTEM
+    # ==================
     levels = load_data("levels.json")
     user_id = str(message.author.id)
 
@@ -61,9 +145,13 @@ async def on_message(message):
         )
 
     save_data("levels.json", levels)
+
     await bot.process_commands(message)
 
-# Rank Command
+# ==============================
+# LEVEL COMMANDS
+# ==============================
+
 @bot.command()
 async def r(ctx):
     levels = load_data("levels.json")
@@ -77,7 +165,6 @@ async def r(ctx):
     level = levels[user_id]["level"]
     await ctx.send(f"📊 {ctx.author.mention} | Level: {level} | XP: {xp}")
 
-# Leaderboard Command
 @bot.command()
 async def lb(ctx):
     levels = load_data("levels.json")
@@ -124,11 +211,40 @@ async def birthday_check():
             user = await bot.fetch_user(int(user_id))
             await channel.send(f"🎉🎂 Happy Birthday {user.mention}! 🎂🎉")
 
+# ==============================
+# MODERATION COMMANDS
+# ==============================
+
+@bot.command()
+@commands.has_permissions(moderate_members=True)
+async def timeout(ctx, member: discord.Member, time: int, unit: str):
+    if unit == "m":
+        duration = timedelta(minutes=time)
+    elif unit == "h":
+        duration = timedelta(hours=time)
+    else:
+        await ctx.send("Use m (minutes) or h (hours)")
+        return
+
+    await member.timeout(duration, reason=f"Timeout by {ctx.author}")
+    await ctx.send(f"🔇 {member.mention} timed out for {time}{unit}")
+
+@bot.command()
+@commands.has_permissions(moderate_members=True)
+async def untimeout(ctx, member: discord.Member):
+    await member.timeout(None)
+    await ctx.send(f"🔊 {member.mention} timeout removed.")
+
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def clear(ctx, amount: int):
+    await ctx.channel.purge(limit=amount+1)
+
+# ==============================
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user}")
     birthday_check.start()
-
-# ==============================
 
 bot.run(TOKEN)
